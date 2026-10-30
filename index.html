@@ -246,7 +246,7 @@ function finalCount(n,M,w,masses,hist,e,lim){
   return {c:s.c,cut:s.c>=LIM,vf:s.v[s.n-1]};
 }
 
-let st,playing=false,last=0,hist=[];
+let st,playing=false,last=0,hist=[],view=null;
 const cv=$('cv'),ctx=cv.getContext('2d');
 function syncMasses(){const k=N-1;while(ms.length<k)ms.push(ms.length?ms[ms.length-1]:1);ms.length=k;renderMasses()}
 function renderMasses(){
@@ -273,26 +273,52 @@ function refresh(){
 }
 function reset(){
   playing=false;$('play').textContent='재생';
-  st=setup(N,MV);hist=[];
+  st=setup(N,MV);hist=[];view=null;
   const f=finalCount(N,MV,W,ms,N===2?hist:null),p=predict(N,MV,W);
   $('final').textContent=(f.cut?'≥ ':'')+fmtN(f.c)+(E<1&&W===1&&Math.abs(f.vf)<1e-9?' (큰 블록 멈춤)':'');
   if(p===null){$('pred').textContent='–';$('err').textContent='–'}
   else{$('pred').textContent=fmtN(p);const e=f.c?Math.abs(f.c-p)/f.c*100:0;$('err').textContent=e<0.005?'0%':e.toFixed(e<1?2:1)+'%'}
   draw();
 }
-function draw(){
+/* 화면 범위: 블록이 두 끝 밖으로 나가면 그만큼 넓혀 모두 보이게 한다 */
+function viewTarget(look){
+  const n=st.n;
+  // 앞으로 look(시뮬레이션 시간)만큼 갈 위치까지 미리 포함해 카메라가 뒤처지지 않게 한다
+  let hi=Math.max(LT,...st.x,st.x[n-1]+Math.max(st.v[n-1],0)*look);
+  let lo=Math.min(0,...st.x);
+  if(W===0)lo=Math.min(lo,st.x[0]+Math.min(st.v[0],0)*look);
+  const span=hi-lo;
+  if(hi>LT)hi+=span*0.12;
+  if(lo<0)lo-=span*0.12;
+  return {x0:lo,x1:hi};
+}
+function draw(dtReal,look){
   const dpr=devicePixelRatio||1,Wd=cv.clientWidth,H=cv.clientHeight;
   cv.width=Wd*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,Wd,H);
   const pad=20,floor=H-34,lw=Math.min(28,(Wd-80)/(st.n+4)),hw=Math.min(90,lw*2.6);
-  const avail=Wd-2*pad-(st.n-1)*lw-hw,sx=x=>pad+x/LT*avail;
+  if(!view||!dtReal){const tg=viewTarget(0);view={x0:tg.x0,x1:tg.x1}}
+  else{
+    const tg=viewTarget(look||0),k=1-Math.exp(-dtReal*4);
+    const s0=view.x1-view.x0,s1=tg.x1-tg.x0;
+    const s=Math.exp(Math.log(s0)+(Math.log(s1)-Math.log(s0))*k);
+    const x0=view.x0+(tg.x0-view.x0)*k;
+    view={x0,x1:x0+s};
+    const mn=Math.min(...st.x),mx=Math.max(...st.x);
+    if(mx>view.x1)view.x1=mx;if(mn<view.x0)view.x0=mn;
+  }
+  // 화면이 축소되는 비율만큼 블록과 벽도 작게(너무 작아지지 않도록 최소 크기 유지)
+  const z=Math.min(1,LT/(view.x1-view.x0)),slw=Math.max(8,lw*Math.sqrt(z)),shw=Math.max(16,hw*Math.sqrt(z));
+  const avail=Wd-2*pad-(st.n-1)*slw-shw,sx=x=>pad+(x-view.x0)/(view.x1-view.x0)*avail;
   ctx.fillStyle=css('--track');ctx.fillRect(0,floor,Wd,3);
-  if(W===1){ctx.fillStyle=css('--ink');ctx.fillRect(sx(0)-6,floor-120,6,123)}
+  const zoom=(view.x1-view.x0)/LT;
+  if(zoom>1.05){ctx.font='12px '+css('--sans');ctx.fillStyle=css('--muted');ctx.textAlign='right';ctx.fillText(`화면 ${zoom.toFixed(1)}배 축소 (보이는 거리 ${(view.x1-view.x0).toFixed(0)} m)`,Wd-8,16);ctx.textAlign='left'}
+  if(W===1){const wh=Math.max(32,120*Math.sqrt(z)),ww=Math.max(3,6*Math.sqrt(z));ctx.fillStyle=css('--ink');ctx.fillRect(sx(0)-ww,floor-wh,ww,wh+3)}
   ctx.font='11px '+css('--mono');
   for(let i=0;i<st.n;i++){
-    const heavy=i===st.n-1,sz=heavy?hw:lw,left=sx(st.x[i])+i*lw;
+    const heavy=i===st.n-1,sz=heavy?shw:slw,left=sx(st.x[i])+i*slw;
     if(left>Wd+200)continue;
     ctx.fillStyle=heavy?css('--accent2'):css('--accent');ctx.fillRect(left,floor-sz,sz,sz);
-    ctx.fillStyle=css('--muted');ctx.fillText(fmtM(st.m[i])+'kg',left,floor+16);
+    if(heavy||z>0.6){ctx.fillStyle=css('--muted');ctx.fillText(fmtM(st.m[i])+'kg',left,floor+16)}
   }
   $('cnt').textContent=fmtN(st.c);
   drawPhase();
@@ -303,10 +329,10 @@ function loop(ts){
   const sp=Math.pow(10,+$('speed').value)/10,T=st.t+dt*sp;
   let k=0;
   while(k<300000){const [d,kind]=nextEvent(st,W);
-    if(kind===null){drift(st,Math.min(T-st.t,0.5));if(Math.max(...st.x)>LT*1.6||st.t>200)st.done=true;break}
+    if(kind===null){drift(st,T-st.t);st.idle=(st.idle||0)+dt;if(st.idle>2.5)st.done=true;break}
     if(st.t+d>T){drift(st,T-st.t);break}
     drift(st,d);apply(st,kind);k++}
-  draw();
+  draw(dt,sp*0.6);
   if(st.done){playing=false;$('play').textContent='다시 재생'}else requestAnimationFrame(loop);
 }
 
@@ -419,7 +445,7 @@ function eTable(){
 
 /* 이벤트 */
 $('play').onclick=()=>{
-  if(st.done)st=setup(N,MV);
+  if(st.done){st=setup(N,MV);view=null}
   playing=!playing;$('play').textContent=playing?'일시정지':'재생';
   if(playing){last=performance.now();requestAnimationFrame(loop)}
 };
