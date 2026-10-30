@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>충돌 블록 실험실</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 레이아웃: 실험대(애니메이션+수치) → 변수 | 위상 공간 → 질량 스윕 | 진법 실험 → 검증된 결과 */
+:root{
+  --bg:#eef1f4; --panel:#ffffff; --ink:#18202b; --muted:#5b6675; --line:#d3d9e1;
+  --accent:#2f55d4; --accent2:#d4672f; --track:#c7ced8; --ok:#2a8a57; --soft:#dfe8ff;
+  --sans:"IBM Plex Sans KR",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12161c; --panel:#1a2029; --ink:#e6eaf0; --muted:#94a0b1; --line:#2c3542;
+  --accent:#7d9bff; --accent2:#ff9a62; --track:#3a4452; --ok:#5fcf93; --soft:#24314f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12161c; --panel:#1a2029; --ink:#e6eaf0; --muted:#94a0b1; --line:#2c3542;
+  --accent:#7d9bff; --accent2:#ff9a62; --track:#3a4452; --ok:#5fcf93; --soft:#24314f; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55}
+.wrap{max-width:1120px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:18px}
+h1{font-size:26px;margin:0;text-wrap:balance}
+h2{font-size:17px;margin:0 0 10px}
+h3{font-size:15px;margin:0 0 4px}
+.sub{color:var(--muted);margin:2px 0 0;max-width:78ch}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+.stage{display:grid;gap:12px}
+canvas{width:100%;display:block}
+#cv{height:190px}
+.stats{display:flex;flex-wrap:wrap;gap:26px;align-items:baseline}
+.big{font-family:var(--mono);font-size:40px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--accent)}
+.lbl{font-size:12px;letter-spacing:.06em;color:var(--muted)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.val{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,select,input{font:inherit;color:var(--ink)}
+button{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:5px 11px;cursor:pointer}
+button.pri{background:var(--accent);border-color:var(--accent);color:var(--panel);font-weight:600}
+button.sm{padding:2px 8px;font-size:13px}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+select,input[type=number],input[type=text]{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 7px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media (max-width:820px){.grid2{grid-template-columns:1fr}}
+.vars{display:grid;gap:14px;align-content:start}
+.var{display:grid;gap:4px}
+.seg{display:inline-flex;justify-self:start;width:max-content;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{border:0;border-radius:0}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--panel);font-weight:600}
+.formula{font-family:var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13.5px;overflow-x:auto}
+table{border-collapse:collapse;font-size:13.5px;width:100%}
+td,th{padding:5px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:12px;color:var(--muted);font-weight:600}
+td:first-child,th:first-child{text-align:left}
+.tbl{overflow-x:auto}
+#plot{height:260px}
+#ph{height:330px}
+.note{font-size:13px;color:var(--muted)}
+.find{display:grid;gap:16px}
+.find p{margin:0;max-width:78ch}
+.pill{display:inline-block;font-size:12px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted);margin-left:6px;font-weight:400}
+.okc{color:var(--ok)}
+.mi{width:72px}
+.hit{color:var(--ok);font-weight:600}
+.warn{color:var(--accent2);font-weight:600}
+</style>
+<style>body{margin:0}</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>충돌 블록 실험실</h1>
+    <p class="sub">마찰 없는 바닥에서 작은 블록들은 처음에 정지해 있고, 벽에서부터 같은 간격 d, 2d, 3d…에 놓입니다. 맨 오른쪽 큰 블록(질량 M)이 1m/s로 왼쪽으로 다가옵니다. 모든 충돌은 완전 탄성충돌이고, 다음 충돌 시각을 정확히 계산해 건너뛰는 사건 기반 방식으로 계산합니다.</p>
+  </header>
+
+  <section class="panel stage">
+    <canvas id="cv" aria-label="블록 충돌 애니메이션"></canvas>
+    <div class="stats">
+      <div><div class="lbl">충돌 횟수 (재생 중)</div><div class="big" id="cnt">0</div></div>
+      <div><div class="lbl">시뮬레이션 최종값</div><div class="val" id="final">–</div></div>
+      <div><div class="lbl" id="predlbl">공식 예측값</div><div class="val" id="pred">–</div></div>
+      <div><div class="lbl">오차</div><div class="val" id="err">–</div></div>
+    </div>
+    <div class="row">
+      <button class="pri" id="play">재생</button>
+      <button id="reset">처음으로</button>
+      <label class="row">재생 속도 <input type="range" id="speed" min="0" max="6" step="0.1" value="1.2"></label>
+    </div>
+  </section>
+
+  <div class="grid2">
+    <section class="panel vars">
+      <h2>변수</h2>
+      <div class="var">
+        <span class="lbl">블록 개수 N (작은 블록 N−1개 + 큰 블록 1개)</span>
+        <div class="row"><input type="range" id="n" min="2" max="8" step="1" value="2"><span class="mono" id="nv">2</span></div>
+      </div>
+      <div class="var">
+        <span class="lbl">큰 블록 질량 M (kg)</span>
+        <div class="row">
+          <input type="text" id="mval" value="100" style="width:120px" inputmode="decimal">
+          <button class="sm" data-m="100">10²</button><button class="sm" data-m="1e4">10⁴</button><button class="sm" data-m="1e6">10⁶</button><button class="sm" data-m="1e8">10⁸</button>
+        </div>
+      </div>
+      <div class="var">
+        <span class="lbl">작은 블록 질량 (kg, 벽 쪽부터 m₁, m₂, …)</span>
+        <div class="row" id="ml"></div>
+        <div class="row"><button id="mreset">모두 1kg</button><button id="mrand">무작위 (0.1~10kg)</button></div>
+      </div>
+      <div class="var">
+        <span class="lbl">벽 개수</span>
+        <div class="seg" role="group"><button id="w0" aria-pressed="false">0개</button><button id="w1" aria-pressed="true">1개 (왼쪽)</button></div>
+      </div>
+      <div class="var">
+        <span class="lbl">반발계수 e (1 = 완전 탄성충돌, 모든 충돌에 적용)</span>
+        <div class="row">
+          <input type="number" id="eval" value="1" min="0" max="1" step="0.001" style="width:96px">
+          <button class="sm" data-e="1">1</button><button class="sm" data-e="0.999">0.999</button><button class="sm" data-e="0.99">0.99</button><button class="sm" data-e="0.9">0.9</button><button class="sm" data-e="0.8">0.8</button>
+        </div>
+      </div>
+      <div class="formula" id="fx"></div>
+    </section>
+
+    <section class="panel">
+      <h2>위상 공간으로 보기 <span class="pill">블록 2개일 때</span></h2>
+      <div class="seg" role="group" style="margin-bottom:8px">
+        <button id="pv0" aria-pressed="true">속도 원</button><button id="pv1" aria-pressed="false">위치 쐐기</button><button id="pv2" aria-pressed="false">펼치기</button>
+      </div>
+      <canvas id="ph" aria-label="위상 공간 그림"></canvas>
+      <p class="note" id="phnote"></p>
+    </section>
+  </div>
+
+  <div class="grid2">
+    <section class="panel">
+      <h2>질량 스윕</h2>
+      <div class="row" style="margin-bottom:8px">
+        <span class="note">현재 설정에서 M을 10⁰부터</span>
+        <label>10^<input id="s1" type="number" value="8" min="1" max="10" style="width:56px"></label>
+        <span class="note">까지</span>
+        <button class="pri" id="sweep">실행</button>
+      </div>
+      <canvas id="plot" aria-label="질량에 따른 충돌 횟수 그래프"></canvas>
+      <p class="note" id="sweepnote">점은 시뮬레이션, 점선은 공식 예측입니다. 두 축 모두 로그 눈금입니다.</p>
+    </section>
+
+    <section class="panel">
+      <h2>진법 실험 <span class="pill">Galperin(2003)</span></h2>
+      <div class="row" style="margin-bottom:8px">
+        <label>진법 b <select id="base"><option value="2">2진법</option><option value="3">3진법</option><option value="10" selected>10진법</option></select></label>
+        <span class="note">M/m = b<sup>2d</sup>, 블록 2개, 벽 1개</span>
+      </div>
+      <div class="tbl"><table>
+        <thead><tr><th>d</th><th>M/m</th><th>충돌 횟수</th><th>b진법 표기</th><th>π의 앞자리</th><th></th></tr></thead>
+        <tbody id="btb"></tbody>
+      </table></div>
+      <p class="note" id="bnote"></p>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>반발계수와 π <span class="pill">비탄성 충돌</span></h2>
+    <p class="note" style="margin:0 0 8px">블록 2개 + 벽 1개에서 반발계수 e를 1보다 조금씩 작게 했을 때의 충돌 횟수입니다. 초록은 π의 자릿수가 그대로 유지된 경우, 주황은 달라진 경우, *는 큰 블록이 되돌아가지 못하고 벽 쪽에 멈춘 경우입니다.</p>
+    <div class="tbl"><table><thead id="ehead"></thead><tbody id="etb"></tbody></table></div>
+    <p class="note" id="enote"></p>
+  </section>
+
+  <section class="panel find">
+    <h2>검증된 결과</h2>
+    <div>
+      <h3>블록 2개 + 벽 1개: n = ⌈π/θ⌉ − 1, θ = arctan√(m/M) <span class="pill okc">증명 완료</span></h3>
+      <p>속도를 점 (√M·V, √m·v)로 나타내면 에너지 보존 때문에 점은 원 위에 있고, 블록 충돌과 벽 충돌은 각각 직선에 대한 반사가 됩니다. 반사 두 번은 2θ 회전이므로 점이 반 바퀴(π)를 돌면 충돌이 끝납니다. Galperin은 같은 결과를 블록의 위치를 점으로 나타낸 "쐐기 안의 당구공"과 "펼치기"로 증명했습니다(위상 공간의 위치 쐐기·펼치기 보기).</p>
+    </div>
+    <div>
+      <h3>벽 0개: n = N(N−1)/2 (M &gt; m) <span class="pill okc">증명 완료</span></h3>
+      <p>같은 질량끼리의 충돌은 속도를 맞바꾸므로 서로 통과하는 것과 같습니다. 그래서 모든 블록 쌍이 정확히 한 번씩 만나고, M을 아무리 키워도 횟수가 늘지 않습니다.</p>
+    </div>
+    <div>
+      <h3>벽 1개, 같은 질량 블록 여러 개: n ≈ π√((M/m)·(1² + 2² + … + k²)) <span class="pill">수치 검증</span></h3>
+      <p>k = N−1은 작은 블록 수입니다. N = 3이면 √5배, N = 4이면 √14배가 되며, M = 10⁸에서 오차는 0.01% 미만입니다. 작은 블록 질량이 서로 다르면 계수가 질량비에 따라 바뀝니다(시뮬레이터의 예측값은 근사식이며 블록 2개일 때 오차가 클 수 있습니다).</p>
+    </div>
+    <div>
+      <h3>진법 일반화: M/m = b<sup>2d</sup>이면 충돌 횟수는 b진법 π의 앞 d+1자리 <span class="pill okc">시뮬레이션 일치</span></h3>
+      <p>θ ≈ √(m/M) = b<sup>−d</sup>이므로 π/θ ≈ π·b<sup>d</sup>가 됩니다. 2진법(11.001001…), 3진법(10.010211…), 10진법 모두 위 표에서 일치합니다.</p>
+    </div>
+    <div>
+      <h3>비탄성 충돌: π가 유지되려면 1 − e &lt; M<sup>−3/4</sup> 정도 <span class="pill">수치 발견</span></h3>
+      <p>반발계수가 1에서 조금만 벗어나도 마지막 자리부터 틀리기 시작합니다. 예상과 달리 충돌은 줄지 않고 오히려 늘어납니다. 에너지를 잃은 큰 블록이 되돌아가지 못하고 벽 쪽에 멈추면, 그 사이에 끼인 작은 블록이 바닥에서 튀다 멈추는 공처럼 점점 짧게 떨며 수많이 부딪힙니다.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let N=2, MV=100, W=1, ms=[1], PV=0, E=1;
+const LT=10;
+const sumSq=k=>k*(k+1)*(2*k+1)/6;
+const ck=k=>{let c=k%2?0.5:1/Math.PI;for(let j=k%2?1:2;j<k;j+=2)c*=j/(j+1);return c};
+const isEq=()=>ms.every(v=>v===ms[0]);
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmtN=v=>Math.round(v).toLocaleString();
+function fmtM(m){if(m>=1e4){const e=Math.log10(m);return Math.abs(e-Math.round(e))<1e-9?'1e'+Math.round(e):m.toExponential(2).replace('+','')}return String(+m.toPrecision(4))}
+
+function predict(n,M,w){
+  const k=n-1,m=ms[0];
+  if(isEq()){
+    if(w===0) return M>m? n*(n-1)/2 : n-1;
+    if(k===1){const th=Math.atan(Math.sqrt(m/M));return Math.ceil(Math.PI/th-1e-12)-1}
+    return Math.floor(Math.PI*Math.sqrt(M/m*sumSq(k)));
+  }
+  if(w===0) return null;
+  let S=1/Math.sqrt(ms[0])+1/Math.sqrt(ms[k-1]);
+  for(let i=0;i<k-1;i++)S+=Math.sqrt(1/ms[i]+1/ms[i+1]);
+  return Math.floor(Math.PI*Math.sqrt(M)*k*ck(k)*S);
+}
+function setup(n,M,masses){
+  const k=n-1,x=[],m=[],v=[];masses=masses||ms;
+  for(let i=0;i<k;i++){x.push((i+1)*(6.5/k));m.push(masses[i]);v.push(0)}
+  x.push(7.5);m.push(M);v.push(-1);
+  return {n,m,v,x,t:0,c:0,done:false,e:E};
+}
+function nextEvent(s,w){
+  let best=Infinity,kind=null;const {n,v,x}=s;
+  for(let i=0;i<n-1;i++){const r=v[i]-v[i+1];if(r>1e-15){const dt=(x[i+1]-x[i])/r;if(dt<best){best=dt;kind=i}}}
+  if(w===1&&v[0]<-1e-15){const dt=-x[0]/v[0];if(dt<best){best=dt;kind='L'}}
+  return [Math.max(0,best),kind];
+}
+function drift(s,dt){for(let i=0;i<s.n;i++)s.x[i]+=s.v[i]*dt;s.t+=dt}
+function apply(s,k){
+  const {m,v,x}=s;
+  const e=s.e===undefined?1:s.e;
+  if(k==='L'){v[0]=-e*v[0];x[0]=0}
+  else if(e===1){const i=k,a=m[i],b=m[i+1],u=v[i],q=v[i+1];
+    v[i]=((a-b)*u+2*b*q)/(a+b);v[i+1]=((b-a)*q+2*a*u)/(a+b);const c=(x[i]+x[i+1])/2;x[i]=x[i+1]=c}
+  else{const i=k,a=m[i],b=m[i+1],u=v[i],q=v[i+1],P=a*u+b*q;
+    v[i]=(P-b*e*(u-q))/(a+b);v[i+1]=(P+a*e*(u-q))/(a+b);const c=(x[i]+x[i+1])/2;x[i]=x[i+1]=c}
+  s.c++;
+}
+function finalCount(n,M,w,masses,hist,e,lim){
+  const s=setup(n,M,masses);if(e!==undefined)s.e=e;const LIM=lim||5e6;
+  if(hist)hist.push({x:s.x.slice(),v:s.v.slice(),k:null});
+  while(s.c<LIM){const [dt,k]=nextEvent(s,w);if(k===null)break;drift(s,dt);apply(s,k);
+    if(hist&&hist.length<4000)hist.push({x:s.x.slice(),v:s.v.slice(),k})}
+  return {c:s.c,cut:s.c>=LIM,vf:s.v[s.n-1]};
+}
+
+let st,playing=false,last=0,hist=[];
+const cv=$('cv'),ctx=cv.getContext('2d');
+function syncMasses(){const k=N-1;while(ms.length<k)ms.push(ms.length?ms[ms.length-1]:1);ms.length=k;renderMasses()}
+function renderMasses(){
+  const box=$('ml');
+  if(box.children.length===ms.length){ms.forEach((v,i)=>{const el=$('mm'+i);if(document.activeElement!==el)el.value=v});return}
+  box.innerHTML=ms.map((v,i)=>`<label class="row" style="gap:4px"><span class="mono note">m${i+1}</span><input class="mi" type="number" id="mm${i}" min="0.01" step="0.1" value="${v}"></label>`).join('');
+  ms.forEach((_,i)=>$('mm'+i).addEventListener('change',e=>{const v=+e.target.value;if(!(v>0)){e.target.value=ms[i];return}ms[i]=v;refresh()}));
+}
+function refresh(){
+  syncMasses();
+  $('nv').textContent=N;$('n').value=N;
+  if(document.activeElement!==$('mval'))$('mval').value=MV>=1e4?fmtM(MV):String(MV);
+  $('w0').setAttribute('aria-pressed',W===0);$('w1').setAttribute('aria-pressed',W===1);
+  const k=N-1;
+  $('fx').innerHTML = !isEq()
+    ? (W===1?`근사식 (질량이 서로 다름): π√M · k·c_k · (1/√m₁ + Σ 1/√μᵢ + 1/√m_k), k = ${k}`:`벽 0개 + 서로 다른 질량: 공식이 없어 시뮬레이션 값만 표시합니다.`)
+    : W===0 ? `증명: ${MV>ms[0]?`N(N−1)/2 = ${N}·${N-1}/2`:`M ≤ m이므로 N−1`}`
+    : k===1 ? `증명: n = ⌈π/θ⌉ − 1, θ = arctan√(m/M) = ${Math.atan(Math.sqrt(ms[0]/MV)).toPrecision(4)} rad`
+    : `수치 검증: π√((M/m)·(1²+…+${k}²)) = π√(${fmtM(MV)}/${ms[0]} × ${sumSq(k)})`;
+  if(E<1)$('fx').innerHTML+=`<br>반발계수 e = ${E}: 위 공식은 e = 1(완전 탄성)일 때의 값입니다. 블록 2개에서 π의 자릿수가 유지되려면 대략 1 − e &lt; M<sup>−3/4</sup> = ${Math.pow(MV/ms[0],-0.75).toPrecision(2)} 이어야 합니다.`;
+  $('predlbl').textContent=E<1?'공식 예측값 (e = 1 기준)':'공식 예측값';
+  if(document.activeElement!==$('eval'))$('eval').value=E;
+  reset();
+}
+function reset(){
+  playing=false;$('play').textContent='재생';
+  st=setup(N,MV);hist=[];
+  const f=finalCount(N,MV,W,ms,N===2?hist:null),p=predict(N,MV,W);
+  $('final').textContent=(f.cut?'≥ ':'')+fmtN(f.c)+(E<1&&W===1&&Math.abs(f.vf)<1e-9?' (큰 블록 멈춤)':'');
+  if(p===null){$('pred').textContent='–';$('err').textContent='–'}
+  else{$('pred').textContent=fmtN(p);const e=f.c?Math.abs(f.c-p)/f.c*100:0;$('err').textContent=e<0.005?'0%':e.toFixed(e<1?2:1)+'%'}
+  draw();
+}
+function draw(){
+  const dpr=devicePixelRatio||1,Wd=cv.clientWidth,H=cv.clientHeight;
+  cv.width=Wd*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,Wd,H);
+  const pad=20,floor=H-34,lw=Math.min(28,(Wd-80)/(st.n+4)),hw=Math.min(90,lw*2.6);
+  const avail=Wd-2*pad-(st.n-1)*lw-hw,sx=x=>pad+x/LT*avail;
+  ctx.fillStyle=css('--track');ctx.fillRect(0,floor,Wd,3);
+  if(W===1){ctx.fillStyle=css('--ink');ctx.fillRect(sx(0)-6,floor-120,6,123)}
+  ctx.font='11px '+css('--mono');
+  for(let i=0;i<st.n;i++){
+    const heavy=i===st.n-1,sz=heavy?hw:lw,left=sx(st.x[i])+i*lw;
+    if(left>Wd+200)continue;
+    ctx.fillStyle=heavy?css('--accent2'):css('--accent');ctx.fillRect(left,floor-sz,sz,sz);
+    ctx.fillStyle=css('--muted');ctx.fillText(fmtM(st.m[i])+'kg',left,floor+16);
+  }
+  $('cnt').textContent=fmtN(st.c);
+  drawPhase();
+}
+function loop(ts){
+  if(!playing)return;
+  const dt=Math.min(0.05,(ts-last)/1000);last=ts;
+  const sp=Math.pow(10,+$('speed').value)/10,T=st.t+dt*sp;
+  let k=0;
+  while(k<300000){const [d,kind]=nextEvent(st,W);
+    if(kind===null){drift(st,Math.min(T-st.t,0.5));if(Math.max(...st.x)>LT*1.6||st.t>200)st.done=true;break}
+    if(st.t+d>T){drift(st,T-st.t);break}
+    drift(st,d);apply(st,kind);k++}
+  draw();
+  if(st.done){playing=false;$('play').textContent='다시 재생'}else requestAnimationFrame(loop);
+}
+
+/* 위상 공간 */
+function drawPhase(){
+  const c=$('ph'),g=c.getContext('2d'),dpr=devicePixelRatio||1,Wd=c.clientWidth,H=c.clientHeight;
+  c.width=Wd*dpr;c.height=H*dpr;g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,Wd,H);
+  g.font='12px '+css('--sans');
+  if(N!==2||!hist.length){g.fillStyle=css('--muted');g.fillText('블록 개수 N = 2일 때 볼 수 있습니다.',16,30);$('phnote').textContent='';return}
+  const m=ms[0],M=MV,th=Math.atan(Math.sqrt(m/M)),shown=Math.min(st.c,hist.length-1);
+  const ink=css('--ink'),mut=css('--muted'),acc=css('--accent'),acc2=css('--accent2'),soft=css('--soft'),line=css('--line');
+  if(PV===0){
+    const R=Math.min(Wd,H)/2-30,cx=Wd/2,cy=H/2;
+    const En=Math.sqrt(M);const P=h=>[cx+R*Math.sqrt(M)*h.v[1]/En,cy-R*Math.sqrt(m)*h.v[0]/En];
+    g.fillStyle=soft;g.beginPath();g.moveTo(cx,cy);g.arc(cx,cy,R,0,-th,true);g.closePath();g.fill();
+    g.strokeStyle=line;g.lineWidth=1;g.beginPath();g.moveTo(cx-R-16,cy);g.lineTo(cx+R+16,cy);g.moveTo(cx,cy-R-16);g.lineTo(cx,cy+R+16);g.stroke();
+    g.strokeStyle=mut;g.beginPath();g.arc(cx,cy,R,0,7);g.stroke();
+    g.setLineDash([5,4]);g.strokeStyle=acc;g.beginPath();g.moveTo(cx-(R+14)*Math.cos(th),cy+(R+14)*Math.sin(th));g.lineTo(cx+(R+14)*Math.cos(th),cy-(R+14)*Math.sin(th));g.stroke();g.setLineDash([]);
+    g.lineWidth=1.3;
+    for(let i=1;i<=shown;i++){const a=P(hist[i-1]),b=P(hist[i]);g.strokeStyle=hist[i].k==='L'?mut:acc2;g.beginPath();g.moveTo(...a);g.lineTo(...b);g.stroke()}
+    const cur=P(hist[shown]);g.fillStyle=ink;g.beginPath();g.arc(cur[0],cur[1],4,0,7);g.fill();
+    g.fillStyle=mut;g.fillText('√M·V',cx+R+4,cy-6);g.fillText('√m·v',cx+6,cy-R-6);
+    $('phnote').textContent=`가로축 √M·V, 세로축 √m·v. ${E<1?'처음 에너지를 나타내는 원입니다.':'에너지 보존 때문에 점은 원 위에 있습니다.'} 주황 선은 블록끼리 충돌(파란 점선에 대한 반사), 회색 선은 벽 충돌(가로축 반사)입니다. 점이 파란 끝 영역에 들어가면 충돌이 끝납니다. θ = ${(th*180/Math.PI).toPrecision(3)}°, π/θ = ${(Math.PI/th).toFixed(2)}.`+(E<1?' 반발계수가 1보다 작으면 충돌할 때마다 에너지를 잃어 점이 원 안쪽으로 빨려 들어갑니다.':'');
+  } else {
+    const al=th;
+    const pts=hist.slice(0,shown+1).map(h=>[Math.sqrt(m)*h.x[0],Math.sqrt(M)*h.x[1]]);
+    if(PV===1){
+      const lastH=hist[shown],ext=shown===hist.length-1;
+      let all=pts.slice();
+      if(ext){const sc=3;all.push([Math.sqrt(m)*(lastH.x[0]+lastH.v[0]*sc),Math.sqrt(M)*(lastH.x[1]+lastH.v[1]*sc)])}
+      const Ymax=Math.max(...all.map(p=>p[1]),Math.sqrt(M)*7.5),Xmax=Math.max(...all.map(p=>p[0]),Ymax*Math.tan(al));
+      const s=Math.min((Wd-60)/(Xmax*1.05+1e-9),(H-40)/(Ymax*1.05));
+      const ox=40,oy=H-20,T=p=>[ox+p[0]*s,oy-p[1]*s];
+      g.fillStyle=soft;g.beginPath();g.moveTo(ox,oy);g.lineTo(ox,oy-Ymax*1.05*s);g.lineTo(ox+Ymax*1.05*Math.tan(al)*s,oy-Ymax*1.05*s);g.closePath();g.fill();
+      g.strokeStyle=mut;g.lineWidth=1.2;g.beginPath();g.moveTo(ox,oy);g.lineTo(ox,oy-Ymax*1.05*s);g.moveTo(ox,oy);g.lineTo(ox+Ymax*1.05*Math.tan(al)*s,oy-Ymax*1.05*s);g.stroke();
+      g.strokeStyle=acc2;g.lineWidth=1.4;g.beginPath();all.forEach((p,i)=>{const q=T(p);i?g.lineTo(...q):g.moveTo(...q)});g.stroke();
+      g.fillStyle=ink;const q=T(pts[pts.length-1]);g.beginPath();g.arc(q[0],q[1],4,0,7);g.fill();
+      g.fillStyle=mut;g.fillText('벽 (X = 0)',ox+6,18);g.fillText('세로축 Y = √M·x₂',ox+6,32);g.fillText('X = √m·x₁ →',Wd-110,oy-4);
+      $('phnote').textContent=`두 블록의 위치 (x₁, x₂)를 점 (√m·x₁, √M·x₂)로 나타내면 점은 각도 α = ${(al*180/Math.PI).toPrecision(3)}°인 쐐기 안을 움직이는 당구공이 됩니다. 쐐기의 왼쪽 변은 벽 충돌, 오른쪽 변은 블록끼리 충돌입니다. M이 작을수록(예: 10, 30, 100) 잘 보입니다.`;
+    } else {
+      const X0=pts[0][0],Y0=pts[0][1],L=Math.hypot(X0,Y0)*1.15;
+      const s=Math.min((Wd-40)/(L*1.05),(H-30)/(2*L*1.02));
+      const ox=20,oy=H/2,T=p=>[ox+p[0]*s,oy-p[1]*s];
+      const nr=Math.floor(Math.PI/al+1e-9);
+      g.lineWidth=1;
+      for(let j=0;j<=nr&&j<=400;j++){const a=Math.PI/2-j*al;if(a<-Math.PI/2-1e-9)break;g.strokeStyle=j%2?acc:mut;g.globalAlpha=j===0?0.9:0.45;g.beginPath();g.moveTo(ox,oy);g.lineTo(ox+L*Math.cos(a)*s,oy-L*Math.sin(a)*s);g.stroke()}
+      g.globalAlpha=1;
+      const yEnd=-Math.sqrt(L*L-X0*X0);
+      g.strokeStyle=acc2;g.lineWidth=2;g.beginPath();g.moveTo(...T([X0,Y0]));g.lineTo(...T([X0,yEnd]));g.stroke();
+      g.fillStyle=ink;let cnt=0;
+      for(let j=1;j<=nr;j++){const a=Math.PI/2-j*al;if(a<=-Math.PI/2+1e-12)break;const Y=X0*Math.tan(a);if(Y>Y0)continue;cnt++;if(cnt<=shown&&nr<=120){const q=T([X0,Y]);g.beginPath();g.arc(q[0],q[1],2.6,0,7);g.fill()}}
+      g.fillStyle=mut;g.fillText('반 평면에 들어가는 쐐기 수 ≈ π/α',ox+6,16);
+      $('phnote').textContent=`쐐기를 변에 대해 계속 뒤집어(펼쳐) 붙이면 당구공의 꺾인 경로가 한 직선(주황)이 됩니다. 직선이 쐐기 경계선을 지날 때마다 충돌이 한 번 일어나므로, 반 평면(각 π)에 들어가는 쐐기 수가 곧 충돌 횟수입니다. 경계선 ${cnt}개를 지나므로 충돌은 ${cnt}번입니다.`;
+    }
+  }
+}
+
+/* 질량 스윕 */
+let lastSweep=null;
+$('sweep').onclick=()=>{
+  let b=Math.round(+$('s1').value);if(!isFinite(b))b=8;b=Math.max(1,Math.min(10,b));$('s1').value=b;
+  const pts=[],K=24;
+  for(let i=0;i<=K;i++){const e=b*i/K,M=Math.pow(10,e);const r=finalCount(N,M,W);pts.push([e,r.c,predict(N,M,W),r.cut])}
+  lastSweep=pts;plot(pts);
+  $('sweepnote').textContent=`N=${N}, 벽 ${W}개. 점은 시뮬레이션, 점선은 공식 예측입니다.`+(pts.some(p=>p[3])?' 일부 점은 500만 번에서 계산을 멈췄습니다.':'');
+};
+function plot(pts){
+  const c=$('plot'),g=c.getContext('2d'),dpr=devicePixelRatio||1,Wd=c.clientWidth,H=c.clientHeight;
+  c.width=Wd*dpr;c.height=H*dpr;g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,Wd,H);
+  const l=46,r=12,t=10,bt=34,lg=v=>Math.log10(Math.max(1,v));
+  const xs=pts.map(p=>p[0]),ys=pts.map(p=>lg(p[1])),hasP=pts[0][2]!==null,ps=hasP?pts.map(p=>lg(p[2])):ys;
+  const x0=0,x1=Math.max(...xs),y0=0,y1=Math.max(1,Math.ceil(Math.max(...ys,...ps)));
+  const X=v=>l+(v-x0)/(x1-x0)*(Wd-l-r),Y=v=>H-bt-(v-y0)/(y1-y0)*(H-bt-t);
+  g.strokeStyle=css('--line');g.fillStyle=css('--muted');g.font='11px '+css('--mono');g.lineWidth=1;
+  for(let v=y0;v<=y1;v++){g.beginPath();g.moveTo(l,Y(v));g.lineTo(Wd-r,Y(v));g.stroke();g.fillText('1e'+v,6,Y(v)+4)}
+  const step=x1>6?2:1;for(let v=0;v<=x1;v+=step)g.fillText('1e'+v,X(v)-10,H-bt+16);
+  g.fillText('M (kg)',Wd/2-18,H-4);
+  if(hasP){g.setLineDash([5,4]);g.strokeStyle=css('--muted');g.beginPath();ps.forEach((v,i)=>i?g.lineTo(X(xs[i]),Y(v)):g.moveTo(X(xs[i]),Y(v)));g.stroke();g.setLineDash([])}
+  g.fillStyle=css('--accent');ys.forEach((v,i)=>{g.beginPath();g.arc(X(xs[i]),Y(v),3,0,7);g.fill()});
+}
+
+/* 진법 실험 */
+const PI_STR='314159265358979323846264338327950288419716939937510582097494459';
+const PI_BIG=BigInt(PI_STR),PI_SCALE=10n**BigInt(PI_STR.length-1);
+function piFloor(b,d){return PI_BIG*BigInt(b)**BigInt(d)/PI_SCALE}
+function piDigits(b,n){let ip=PI_BIG/PI_SCALE,fr=PI_BIG%PI_SCALE,s=ip.toString(b)+'.';for(let i=0;i<n;i++){fr*=BigInt(b);s+=(fr/PI_SCALE).toString(b);fr%=PI_SCALE}return s}
+function baseTable(){
+  const b=+$('base').value,dmax=b===10?5:b===3?7:9,rows=[];
+  for(let d=0;d<=dmax;d++){
+    const M=Math.pow(b,2*d),r=finalCount(2,M,1,[1],null,1);
+    const nb=r.c.toString(b),pf=piFloor(b,d).toString(b),ok=nb===pf;
+    rows.push(`<tr><td class="mono">${d}</td><td class="mono">${b}<sup>${2*d}</sup></td><td class="mono">${r.c.toLocaleString()}</td><td class="mono ${ok?'hit':''}">${nb}</td><td class="mono">${pf}</td><td><button class="sm" data-load="${M}">불러오기</button></td></tr>`);
+  }
+  $('btb').innerHTML=rows.join('');
+  $('bnote').textContent=`${b}진법 π = ${piDigits(b,14)}… 충돌 횟수를 ${b}진법으로 쓰면 π의 앞자리가 그대로 나옵니다(초록 = 일치).`;
+  document.querySelectorAll('[data-load]').forEach(bt=>bt.onclick=()=>{N=2;W=1;ms=[1];MV=+bt.dataset.load;$('ml').innerHTML='';refresh();window.scrollTo({top:0,behavior:'smooth'})});
+}
+
+/* 반발계수 표 */
+function eTable(){
+  const les=[1e-1,1e-2,1e-3,1e-4,1e-5,1e-6,1e-7],Ms=[1e2,1e4,1e6];
+  $('ehead').innerHTML='<tr><th>M/m</th><th>e = 1</th>'+les.map(l=>`<th>1−e = 10<sup>${Math.round(Math.log10(l))}</sup></th>`).join('')+'<th>M<sup>−3/4</sup></th></tr>';
+  $('etb').innerHTML=Ms.map(M=>{
+    const ex=finalCount(2,M,1,[1],null,1).c;
+    const cells=les.map(l=>{const r=finalCount(2,M,1,[1],null,1-l,3e5);const stop=r.cut||Math.abs(r.vf)<1e-9;
+      return `<td class="mono ${r.c===ex?'hit':'warn'}">${r.cut?'&gt; 300,000':r.c.toLocaleString()}${stop?'*':''}</td>`}).join('');
+    return `<tr><td class="mono">${fmtM(M)}</td><td class="mono">${ex.toLocaleString()}</td>${cells}<td class="mono">${Math.pow(M,-0.75).toPrecision(2)}</td></tr>`}).join('');
+  $('enote').textContent='손실(1 − e)이 대략 M^(−3/4)보다 작아야 π의 자릿수가 유지됩니다. 손실이 그보다 크면 큰 블록이 에너지를 잃고 벽 쪽에 멈추면서, 그 사이에 끼인 작은 블록이 점점 빠르게 떨어 충돌이 폭발적으로 늘어납니다.';
+}
+
+/* 이벤트 */
+$('play').onclick=()=>{
+  if(st.done)st=setup(N,MV);
+  playing=!playing;$('play').textContent=playing?'일시정지':'재생';
+  if(playing){last=performance.now();requestAnimationFrame(loop)}
+};
+$('reset').onclick=reset;
+$('n').oninput=e=>{N=+e.target.value;refresh()};
+$('mval').onchange=e=>{const v=Number(e.target.value);if(!(v>0)||v>1e10){e.target.value=MV;return}MV=v;refresh()};
+document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{MV=Number(b.dataset.m);refresh()});
+$('w0').onclick=()=>{W=0;refresh()};
+$('w1').onclick=()=>{W=1;refresh()};
+$('mreset').onclick=()=>{ms=ms.map(()=>1);$('ml').innerHTML='';refresh()};
+$('mrand').onclick=()=>{ms=ms.map(()=>+Math.pow(10,Math.random()*2-1).toFixed(2));$('ml').innerHTML='';refresh()};
+[0,1,2].forEach(i=>$('pv'+i).onclick=()=>{PV=i;[0,1,2].forEach(j=>$('pv'+j).setAttribute('aria-pressed',j===i));drawPhase()});
+$('base').onchange=baseTable;
+function setE(v){if(!(v>=0&&v<=1)){$('eval').value=E;return}E=v;$('eval').value=v;refresh()}
+$('eval').onchange=ev=>setE(Number(ev.target.value));
+document.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>setE(Number(b.dataset.e)));
+addEventListener('resize',()=>{draw();if(lastSweep)plot(lastSweep)});
+refresh();
+baseTable();
+eTable();
+$('sweep').click();
+</script>
+
+</body>
+</html>
